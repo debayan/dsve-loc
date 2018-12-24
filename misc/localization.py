@@ -21,8 +21,9 @@ Author: Martin Engilberge
 """
 
 import numpy as np
-import cv2
+import cv2,os
 
+from PIL import Image
 from scipy.misc import imresize
 from pycocotools import mask as maskUtils
 
@@ -178,19 +179,31 @@ def mask_from_poly(polygons, org_size, in_dim):
     return np.float32(mask_poli > 0)
 
 
-def compute_semantic_seg(imgs_stack, sizes_list, target_ann, cats_stack, fc_w, c_thresh, in_dim=(200, 200)):
+def compute_semantic_seg(batch_number, imgs_stack, sizes_list, target_ann, cats_stack, fc_w, c_thresh, in_dim=(200, 200)):
 
+    imgcount = 0
     mAp = 0
     IoUs = dict()
     for k in cats_stack.keys():
         IoUs[k] = list()
         for i in range(imgs_stack.shape[0]):
+            imgcount += 1
             if k in target_ann[i]:
                 target_mask = mask_from_poly(target_ann[i][k], sizes_list[i], in_dim)
-
                 heat_map = gen_binary_heat_map(imgs_stack[i], cats_stack[k], fc_w, c_thresh, in_dim=in_dim)
-
+                
                 iou = compute_iou(heat_map, target_mask)
+                target_mask *= 255
+                heat_map *= 255
+ 
+                if not os.path.exists("output/%s"%k):
+                    os.makedirs("output/%s"%k)
+                im = Image.fromarray(target_mask)
+                im = im.convert('L')
+                im.save("output/%s/%d_%d_tgt.png"%(k,batch_number,imgcount))
+                im = Image.fromarray(heat_map)
+                im = im.convert('L')
+                im.save("output/%s/%d_%d_heatmap.png"%(k,batch_number,imgcount))
 
                 # last element of tuple is groundtruth target
                 IoUs[k] += [(iou, 1)]
@@ -198,54 +211,5 @@ def compute_semantic_seg(imgs_stack, sizes_list, target_ann, cats_stack, fc_w, c
                 # if categorie k is not present in grountruth set iou at 0
                 IoUs[k] += [(0, 0)]
 
-    mAp = list()
-    for th in [0.3, 0.4, 0.5]:
-        mAp.append(get_map_at(IoUs, th))
+    return IoUs
 
-    return mAp
-
-
-def compute_ap(rec, prec):
-    ap = 0
-    rec_prev = 0
-    for k in range(len(rec)):
-        prec_c = prec[k]
-        rec_c = rec[k]
-
-        ap += prec_c * (rec_c - rec_prev)
-
-        rec_prev = rec_c
-    return ap
-
-
-def get_map_at(IoUs, at):
-    ap = dict()
-    for c in IoUs.keys():
-        sort_tupe_c = sorted(list(IoUs[c]), key=lambda tup: tup[0], reverse=True)
-
-        y_pred = [float(x[0] > at) for x in sort_tupe_c]
-        y_true = [x[1] for x in sort_tupe_c]
-
-        npos = np.sum(y_true)
-
-        nd = len(y_pred)
-        tp = np.zeros((nd))
-        fp = np.zeros((nd))
-
-        for i in range(1, nd):
-            if y_pred[i] == 1:
-                tp[i] = 1
-            else:
-                fp[i] = 1
-
-        # compute precision/recall
-        fp = np.cumsum(fp)
-        tp = np.cumsum(tp)
-        rec = tp / npos
-        prec = tp / (fp + tp)
-
-        prec[0] = 0
-
-        ap[c] = compute_ap(rec, prec)
-
-    return np.mean(list(ap.values()))

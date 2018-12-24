@@ -34,6 +34,52 @@ from misc.utils import collate_fn_semseg
 from torch.utils.data import DataLoader
 
 
+def compute_ap(rec, prec):
+    ap = 0
+    rec_prev = 0
+    for k in range(len(rec)):
+        prec_c = prec[k]
+        rec_c = rec[k]
+
+        ap += prec_c * (rec_c - rec_prev)
+
+        rec_prev = rec_c
+    return ap
+
+
+def get_map_at(IoUs, at):
+    ap = dict()
+    for c in IoUs.keys():
+        sort_tupe_c = sorted(list(IoUs[c]), key=lambda tup: tup[0], reverse=True)
+
+        y_pred = [float(x[0] > at) for x in sort_tupe_c]
+        y_true = [x[1] for x in sort_tupe_c]
+
+        npos = np.sum(y_true)
+
+        nd = len(y_pred)
+        tp = np.zeros((nd))
+        fp = np.zeros((nd))
+
+        for i in range(1, nd):
+            if y_pred[i] == 1:
+                tp[i] = 1
+            else:
+                fp[i] = 1
+
+        # compute precision/recall
+        fp = np.cumsum(fp)
+        tp = np.cumsum(tp)
+        rec = tp / npos
+        prec = tp / (fp + tp)
+
+        prec[0] = 0
+
+        ap[c] = compute_ap(rec, prec)
+
+    return np.mean(list(ap.values()))
+
+
 device = torch.device("cuda")
 # device = torch.device("cpu") # uncomment to run with cpu
 
@@ -71,31 +117,6 @@ if __name__ == '__main__':
     dataset = CocoSemantic(transform=prepro_val)
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False,
                         num_workers=4, collate_fn=collate_fn_semseg, pin_memory=True)
-
-    imgs_enc = list()
-    imgs_wld = list()
-    target_ann = list()
-    sizes_list = list()
-
-    print("### Starting image embedding ###")
-    end = time.time()
-    for i, (imgs, sizes, targets) in enumerate(loader, 0):
-
-        input_imgs = imgs.to(device, non_blocking=True)
-
-        with torch.no_grad():
-            _, output_imgs = join_emb.img_emb.module.get_activation_map(input_imgs)
-
-        output_imgs.size()
-        target_ann += targets
-        sizes_list += sizes
-        imgs_enc.append(output_imgs.cpu().data.numpy())
-
-        if i % 100 == 99:
-            print(str((i + 1) * args.batch_size) + "/" + str(len(dataset)) + " images encoded - Time per batch: " + str((time.time() - end)) + "s")
-
-        end = time.time()
-
     cats_enc = list()
     # process captions
     print("### Starting category embedding ###")
@@ -110,12 +131,33 @@ if __name__ == '__main__':
 
     cats_stack = dict(zip([cat['name'] for cat in dataset.categories], cats_enc))
 
-    imgs_stack = np.vstack(imgs_enc)
-
-    print("Dimension of images maps:", imgs_stack.shape)
-    print("Dimension of categories embeddings:", cats_stack.shape)
-
     fc_w = join_emb.fc.module.weight.cpu().data.numpy()
 
-    mAp_at_IoU = compute_semantic_seg(imgs_stack, sizes_list, target_ann, cats_stack, fc_w, args.ctresh)
-    print("Coco semantic segmentation IoU@(0.3,0.4,0.5):", mAp_at_IoU)
+    print("### Starting image embedding ###")
+    IoUs = dict()
+    for i, (imgs, sizes, targets) in enumerate(loader, 0):
+        imgs_enc = list()
+        imgs_wld = list()
+        target_ann = list()
+        sizes_list = list()
+
+        input_imgs = imgs.to(device, non_blocking=True)
+
+        with torch.no_grad():
+            _, output_imgs = join_emb.img_emb.module.get_activation_map(input_imgs)
+
+        output_imgs.size()
+        target_ann += targets
+        sizes_list += sizes
+        imgs_enc.append(output_imgs.cpu().data.numpy())
+        imgs_stack = np.vstack(imgs_enc)
+        ious = compute_semantic_seg(i,imgs_stack, sizes_list, target_ann, cats_stack, fc_w, args.ctresh)
+        if len(IoUs) == 0:
+            IoUs = ious
+        else:
+            for k in ious.keys():
+                IoUs[k] += ious[k]
+        mAp = list()
+        for th in [0.3, 0.4, 0.5]:
+            mAp.append(get_map_at(IoUs, th)) 
+        print("mAp for 0.3,0.4,0.5 after %d images ="%((i+1)*args.batch_size),mAp)
