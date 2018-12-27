@@ -202,7 +202,7 @@ class CocoSemantic(data.Dataset):
         if self.transform is not None:
             img = self.transform(img)
 
-        return img, img_size, target
+        return img, img_size, target, path
 
     def __len__(self):
         return len(self.ids)

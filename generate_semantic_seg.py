@@ -29,56 +29,10 @@ import torch
 import torchvision.transforms as transforms
 
 from misc.dataset import CocoSemantic
-from misc.localization import compute_semantic_seg
+from misc.localization import compute_semantic_seg,generate_semantic_seg
 from misc.model import joint_embedding
 from misc.utils import collate_fn_semseg
 from torch.utils.data import DataLoader
-
-
-def compute_ap(rec, prec):
-    ap = 0
-    rec_prev = 0
-    for k in range(len(rec)):
-        prec_c = prec[k]
-        rec_c = rec[k]
-
-        ap += prec_c * (rec_c - rec_prev)
-
-        rec_prev = rec_c
-    return ap
-
-
-def get_map_at(IoUs, at):
-    ap = dict()
-    for c in IoUs.keys():
-        sort_tupe_c = sorted(list(IoUs[c]), key=lambda tup: tup[0], reverse=True)
-
-        y_pred = [float(x[0] > at) for x in sort_tupe_c]
-        y_true = [x[1] for x in sort_tupe_c]
-
-        npos = np.sum(y_true)
-
-        nd = len(y_pred)
-        tp = np.zeros((nd))
-        fp = np.zeros((nd))
-
-        for i in range(1, nd):
-            if y_pred[i] == 1:
-                tp[i] = 1
-            else:
-                fp[i] = 1
-
-        # compute precision/recall
-        fp = np.cumsum(fp)
-        tp = np.cumsum(tp)
-        rec = tp / npos
-        prec = tp / (fp + tp)
-
-        prec[0] = 0
-
-        ap[c] = compute_ap(rec, prec)
-
-    return np.mean(list(ap.values()))
 
 
 device = torch.device("cuda")
@@ -152,13 +106,5 @@ if __name__ == '__main__':
         sizes_list += sizes
         imgs_enc.append(output_imgs.cpu().data.numpy())
         imgs_stack = np.vstack(imgs_enc)
-        ious = compute_semantic_seg(i,imgs_stack, sizes_list, target_ann, cats_stack, fc_w, args.ctresh)
-        if len(IoUs) == 0:
-            IoUs = ious
-        else:
-            for k in ious.keys():
-                IoUs[k] += ious[k]
-        mAp = list()
-        for th in [0.3, 0.4, 0.5]:
-            mAp.append(get_map_at(IoUs, th)) 
-        print("mAp for 0.3,0.4,0.5 after %d images ="%((i+1)*args.batch_size),mAp)
+        generate_semantic_seg(i, paths, imgs_stack, sizes_list, target_ann, cats_stack, fc_w, args.ctresh)
+        #compute_semantic_seg(i, imgs_stack, sizes_list, target_ann, cats_stack, fc_w, args.ctresh)

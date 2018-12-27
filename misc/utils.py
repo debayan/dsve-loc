@@ -157,10 +157,10 @@ def collate_fn_cap_padded(data):
 
 
 def collate_fn_semseg(data):
-    images, size, targets = zip(*data)
+    images, size, targets, paths = zip(*data)
     images = torch.stack(images, 0)
 
-    return images, size, targets
+    return images, size, targets, paths
 
 
 def collate_fn_img_padded(data):

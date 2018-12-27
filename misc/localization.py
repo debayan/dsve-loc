@@ -21,7 +21,7 @@ Author: Martin Engilberge
 """
 
 import numpy as np
-import cv2,os
+import cv2,os,sys
 
 from PIL import Image
 from scipy.misc import imresize
@@ -157,6 +157,15 @@ def gen_binary_heat_map(maps, concept, fc_w, c_thresh, in_dim=(400, 400)):
 
     return np.int32(hm > thresh(hm, c_thresh))
 
+def gen_heat_maps(maps, concept, fc_w, c_thresh, in_dim=(400, 400)):
+    hm = generate_heat_map(maps, concept, fc_w, nmax=10, in_dim=in_dim)
+
+    # hm += abs(np.min(hm))
+
+    def thresh(a, coef):
+        return coef * (np.max(a) - np.min(a))
+
+    return np.int32(hm > thresh(hm, c_thresh)),hm
 
 def compute_iou(hm, target_mask):
     return np.sum(hm * target_mask) / (np.sum(target_mask) + np.sum(hm) - np.sum(hm * target_mask))
@@ -213,3 +222,22 @@ def compute_semantic_seg(batch_number, imgs_stack, sizes_list, target_ann, cats_
 
     return IoUs
 
+def generate_semantic_seg(batch_number, image_paths, imgs_stack, sizes_list, target_ann, cats_stack, fc_w, c_thresh, in_dim=(200, 200)):
+    cocolabels = ['person','bicycle','car','motorcycle','airplane','bus','train','truck','boat','traffic light','fire hydrant','stop sign','parking meter','bench','bird','cat','dog','horse','sheep','cow','elephant','bear','zebra','giraffe','backpack','umbrella','handbag','tie','suitcase','frisbee','skis','snowboard','sports ball','kite','baseball bat','baseball glove','skateboard','surfboard','tennis racket','bottle','wine glass','cup','fork','knife','spoon','bowl','banana','apple','sandwich','orange','broccoli','carrot','hot dog','pizza','donut','cake','chair','couch','potted plant','bed','dining table','toilet','tv','laptop','mouse','remote','keyboard','cell phone','microwave','oven','toaster','sink','refrigerator','book','clock','vase','scissors','teddy bear','hair drier','toothbrush']
+    if not os.path.exists("./numpyserialised/"):
+        os.makedirs("./numpyserialised/")
+    for i in range(imgs_stack.shape[0]):
+        image_path = image_paths[i]
+        hms = np.zeros((81,200,200))
+        for index,k in enumerate(cocolabels):
+            bhm,hm = gen_heat_maps(imgs_stack[i], cats_stack[k], fc_w, c_thresh, in_dim=in_dim)
+            hms[index+1] = hm
+        for k in cocolabels:
+            if k in target_ann[i]:
+                target_mask = mask_from_poly(target_ann[i][k], sizes_list[i], in_dim)
+                heat_map = hms[cocolabels.index(k)+1]
+                heat_map[heat_map<(0.45*255)] = 0
+                heat_map[heat_map>=(0.45*255)] = 1
+                iou = compute_iou(heat_map, target_mask)
+        image_path = image_path.replace('jpg','npz')
+        np.savez_compressed("./numpyserialised/%s"%image_path,hms)
