@@ -19,19 +19,21 @@ totalintersection = np.zeros((81))
 totalunion = np.zeros((81))
 for line_counter, img_name in enumerate(img_name_list):
     gt = misc.imread('./data/ClassSegmentation/val2014/'+img_name+'.png')
-    pred = np.load('./numpyserialised13/'+img_name+'.npz')['arr_0'] #This is 81 channels thick, each channel 13x13. channel 0 = 0, other channels have values from -inf to +inf, each channel belonging to a coco class 
-    for i in range(13):
-        for j in range(13):
+    pred_ = np.load('./numpyserialised13/'+img_name+'.npz')['arr_0'] #This is 81 channels thick, each channel 13x13. channel 0 = 0, other channels have values from -inf to +inf, each channel belonging to a coco class
+    pred = np.zeros((81, gt.shape[0], gt.shape[1]))
+    for i in range(81):
+        pred[i] = misc.imresize(pred_[i],(gt.shape[0], gt.shape[1]), mode='F')
+    for i in range(gt.shape[0]):
+        for j in range(gt.shape[1]):
             torchx = torch.from_numpy(pred[:,i,j])
             m = torch.nn.Sigmoid()
             sigmoidtorchx = m(torchx)
             pred[:,i,j] = sigmoidtorchx.cpu().numpy()
     pred[0] = args.thresh
     pred1c = np.argmax(pred,0) #pred is 81 channels, pred1c is 1 channel
-    pred1cresized = np.resize(pred1c,gt.shape)
     for i in range(81):
-        totalintersection[i] += np.sum(np.logical_and(np.equal(gt, i), np.equal(pred1cresized, i)))
-        totalunion[i] += np.sum(np.logical_or(np.equal(gt, i), np.equal(pred1cresized, i)))
+        totalintersection[i] += np.sum(np.logical_and(np.equal(gt, i), np.equal(pred1c, i)))
+        totalunion[i] += np.sum(np.logical_or(np.equal(gt, i), np.equal(pred1c, i)))
     if line_counter%100 == 99:
         iou = np.sum(np.divide(totalintersection, totalunion+0.000001))/81.0
         for l in range(81):
