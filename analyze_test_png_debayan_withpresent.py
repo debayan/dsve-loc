@@ -12,7 +12,7 @@ parser = argparse.ArgumentParser(description="DVSE Engilberge IoU evaluation by 
 parser.add_argument('--thresh', type=float, default=0.5)
 args = parser.parse_args()
 
-img_gt_name_list = open('smallval.txt').read().splitlines()
+img_gt_name_list = open('val5k.txt').read().splitlines()
 img_name_list = [img[:-4] for img in img_gt_name_list]
 
 totalintersection = np.zeros((81))
